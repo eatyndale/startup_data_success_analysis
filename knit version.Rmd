@@ -1,0 +1,350 @@
+---
+title: "2423917_AMARACHI-ECHE_AIN7301_A2"
+author: "Amarachi Eche"
+date: "2025-04-28"
+output: html_document
+---
+
+# Load necessary libraries
+
+```{r Load necessary libraries}
+
+required_packages <- c(
+  "tidyverse",    # Comprehensive data manipulation and visualization tools
+  "janitor",      # Streamlines data cleaning (e.g., clean column names)
+  "DataExplorer", # Automated exploratory data analysis reports
+  "GGally",       # Extension of ggplot2 for correlation and pairwise plots
+  "car",          # Companion to Applied Regression (e.g., VIF, ANOVA)
+  "skimr",        # Quick summary of data with nice formatting
+  "corrplot"
+)
+
+# Install only packages that are not already installed
+install.packages(setdiff(required_packages, rownames(installed.packages())), dependencies = TRUE)
+
+# Load all required packages into the session
+lapply(required_packages, library, character.only = TRUE)
+```
+
+# Load and View the Dataset
+
+```{r Load the dataset}
+startupdata <- read.csv("startup_data.csv") %>%
+  clean_names()
+
+head(startupdata)
+
+skim(startupdata)
+```
+
+# Data Preparation
+
+```{r 1. Check for Missing Values}
+
+missing_values <- startupdata %>%
+  summarise_all(~ sum(is.na(.)))
+
+cat("Missing Values per Column:\n")
+print(missing_values)
+
+```
+
+```{r 2. Check for Duplicates}
+duplicate_rows <- startupdata %>%
+  duplicated()
+
+cat("\nNumber of Duplicate Rows:", sum(duplicate_rows), "\n")
+
+# View duplicate rows if any
+if(sum(duplicate_rows) > 0) {
+  print(startupdata[duplicate_rows, ])
+}
+```
+
+```{r 3. Detect outliers using the IQR rule}
+
+detect_outliers <- function(x) {
+  if(is.numeric(x)) {
+    Q1 <- quantile(x, 0.25, na.rm = TRUE)
+    Q3 <- quantile(x, 0.75, na.rm = TRUE)
+    IQR_value <- Q3 - Q1
+    return(sum(x < (Q1 - 1.5 * IQR_value) | x > (Q3 + 1.5 * IQR_value), na.rm = TRUE))
+  } else {
+    return(NA)
+  }
+}
+
+outliers <- startupdata %>%
+  summarise_all(detect_outliers)
+
+cat("\nOutliers per Numeric Column:\n")
+print(outliers)
+
+```
+
+```{r 4. Check for Other Inconsistencies}
+
+cat("\nUnique Values in Categorical Columns:\n")
+categorical_vars <- c("industry", "region", "profitability", "exit_status")
+
+for (var in categorical_vars) {
+  cat("\n", var, ":\n", sep = "")
+  print(unique(startupdata[[var]]))
+}
+
+```
+
+# Descriptive Statistics
+
+```{r Startup Information By Region}
+startupdata_region <- startupdata %>%
+  group_by(region) %>%  # Group by region
+  summarize(Count = n(),  # Count number of startups per region
+            Average_Revenue = round(mean(revenue_m_usd)),  # Calculate mean revenue
+            Median_Revenue = round(median(revenue_m_usd)),  # Calculate median revenue
+            Min_Revenue = min(revenue_m_usd),        # Calculate minimum revenue
+            Max_Price = max(revenue_m_usd)) %>%        # Calculate maximum revenue)                     
+  arrange(desc(Count))  # Sort by count in descending order
+print(startupdata_region)  # Display the summary
+```
+
+```{r Startup Information By Industry}
+startupdata_industry <- startupdata %>%
+  group_by(industry) %>%  # Group by industry
+  summarize(Count = n(),  # Count number of startups per industry
+            Average_Revenue = round(mean(revenue_m_usd)),  # Calculate mean revenue
+            Median_Revenue = round(median(revenue_m_usd)),  # Calculate median revenue
+            Min_Revenue = min(revenue_m_usd),        # Calculate minimum revenue
+            Max_Price = max(revenue_m_usd), # Calculate maximum revenue}
+            Std_Dev_Revenue = round(sd(revenue_m_usd, na.rm = TRUE), 2),
+            IQR_Revenue = round(IQR(revenue_m_usd, na.rm = TRUE), 2)) %>%        
+  arrange(desc(Count))  # Sort by count in descending order
+print(startupdata_industry)  # Display the summary
+```
+
+```{r Startup Information By Profitability}
+startupdata_profitability <- startupdata %>%
+  group_by(profitable) %>%  # Group by profitability
+  summarize(Count = n(),  # Count number of startups per profitability
+            Average_Revenue = round(mean(revenue_m_usd)),  # Calculate mean revenue
+            Median_Revenue = round(median(revenue_m_usd)),  # Calculate median revenue
+            Min_Revenue = min(revenue_m_usd),        # Calculate minimum revenue
+            Max_Price = max(revenue_m_usd)) %>%        # Calculate maximum revenue                     
+  arrange(desc(Count))  # Sort by count in descending order
+print(startupdata_profitability)  # Display the summary
+```
+
+# Exploartory Data Analysis
+
+```{r}
+numeric_startupdata <- startupdata %>%
+  select(where(is.numeric)) %>%
+  names()
+
+for (col in numeric_startupdata) {
+  p <- ggplot(startupdata, aes(x = .data[[col]])) +
+    geom_histogram(bins = 50, fill = "blue", color = "white", alpha = 0.7) +
+    theme_minimal() +
+    labs(title = paste("Distribution of", col), x = col, y = "Count")
+  
+  print(p)  # Correct: print the plot object
+}
+
+
+```
+
+```{r}
+categorical_cols <- startupdata %>%
+  select(where(is.character)) %>%
+  select(-startup_name) %>%
+  names()
+for (col in categorical_cols) {
+  q <- startupdata %>%
+    count(.data[[col]]) %>%
+    ggplot(aes(x = reorder(.data[[col]], n), y = n)) +
+    geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+    coord_flip() +
+    theme_minimal() +
+    labs(title = paste("Count of", col), x = col, y = "Frequency")
+  
+  print(q)  # Print the plot object
+}
+
+```
+
+```{r Compute the correlation matrix}
+numeric_startupdata <- startupdata %>%
+  select(where(is.numeric))
+cor_matrix <- cor(numeric_startupdata, use = "complete.obs")
+print(cor_matrix)
+
+# Plot the correlation heatmap
+corrplot(cor_matrix, 
+         method = "color",          # Use color to represent correlation
+         type = "upper",            # Show only the upper triangle
+         order = "hclust",          # Order variables by hierarchical clustering
+         tl.col = "black",          # Text label color
+         tl.srt = 45,               # Text label rotation angle
+         addCoef.col = "black",     # Show correlation coefficients
+         diag = FALSE,              # Exclude diagonal
+         title = "Correlation Heatmap of Startup Dataset Variables",
+         mar = c(0, 0, 1, 0))       # Adjust margins for title
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# 1. Compute correlation matrix
+numeric_startupdata <- startupdata %>%
+  select(where(is.numeric))
+
+cor_matrix <- cor(numeric_startupdata, use = "complete.obs")
+
+# 2. Convert correlation matrix to long format
+cor_data <- as.data.frame(cor_matrix) %>%
+  rownames_to_column(var = "Var1") %>%
+  pivot_longer(cols = -Var1, names_to = "Var2", values_to = "Correlation")
+
+# 3. Plot using ggplot2
+ggplot(cor_data, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white",
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name = "Correlation") +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  coord_fixed() +
+  labs(title = "Correlation Heatmap of Startup Dataset Variables",
+       x = "", y = "")
+     
+
+```
+
+## Feature Engineering
+
+```{r Feature Engineering: create a "success" label for startups}
+startupdata <- startupdata %>%
+  mutate(success = ifelse(exit_status %in% c("Acquired", "IPO"), 1, 0))
+
+head(startupdata)
+```
+
+```{r}
+# Group by industry and calculate success rate
+industry_success_rate <- startupdata %>%
+  group_by(industry) %>%
+  summarize(
+    total_startups = n(), # Total startups in each industry
+    successful_startups = sum(success == "1", na.rm = TRUE),  # Count of successful ones
+    success_rate = round(100 * successful_startups / total_startups, 2)  # Success rate in percentage
+  ) %>%
+  arrange(desc(success_rate))  # Arrange industries from highest to lowest success rate
+
+# View the table
+print(industry_success_rate)
+
+```
+
+```{r}
+# Group by industry and calculate success rate
+industry_success_rate <- startupdata %>%
+  group_by(region) %>%
+  summarize(
+    total_startups = n(), # Total startups in each industry
+    successful_startups = sum(success == "1", na.rm = TRUE),  # Count of successful ones
+    success_rate = round(100 * successful_startups / total_startups, 2)  # Success rate in percentage
+  ) %>%
+  arrange(desc(success_rate))  # Arrange industries from highest to lowest success rate
+
+# View the table
+print(industry_success_rate)
+```
+
+```{r}
+# T-test: Revenue by Profitability
+t_test_result <- t.test(revenue_m_usd ~ profitable, data = startupdata)
+
+print(t_test_result)
+
+```
+
+```{r}
+# T-test: Funding Round by Profitability
+t_test_result_funding_round <- t.test(funding_rounds ~ profitable, data = startupdata)
+
+print(t_test_result_funding_round)
+
+```
+
+```{r}
+# One-way ANOVA: Funding Amount by Industry
+anova_result <- aov(funding_amount_m_usd ~ industry, data = startupdata)
+
+summary(anova_result)
+
+```
+
+```{r}
+# One-way ANOVA: Funding Amount by region
+anova_result <- aov(funding_amount_m_usd ~ region, data = startupdata)
+
+summary(anova_result)
+
+```
+
+```{r}
+
+# Chi-Square: Profitable by Industry
+chisq_industry <- table(startupdata$industry, startupdata$profitable)
+chisq.test(chisq_industry)
+
+# Chi-Square: Profitable by Region
+chisq_region <- table(startupdata$region, startupdata$profitable)
+chisq.test(chisq_region)
+
+
+# Chi-Square: Success by Industry
+chisq_industry_exit <- table(startupdata$industry, startupdata$success)
+chisq.test(chisq_industry_exit)
+
+# Chi-Square: Success by Region
+chisq_region_exit <- table(startupdata$region, startupdata$success)
+chisq.test(chisq_region_exit)
+
+
+# Chi-Square: Profitable Vs Success
+chisq_region_test <- table(startupdata$profitable, startupdata$success)
+chisq.test(chisq_region_test)
+
+```
+
+```{r}
+# Multiple Linear Regression
+linear_model <- lm(revenue_m_usd ~ valuation_m_usd + funding_amount_m_usd + market_share + employees, data = startupdata)
+
+summary(linear_model)
+
+```
+
+```{r}
+
+# Logistic Regression
+logistic_model_profitable <- glm(profitable ~ valuation_m_usd + funding_amount_m_usd + revenue_m_usd + funding_rounds + year_founded + market_share + employees,
+                      data = startupdata, family = "binomial")
+
+summary(logistic_model_profitable)
+
+```
+
+```{r}
+
+# Logistic Regression Success
+logistic_model_success <- glm(success ~ valuation_m_usd + funding_amount_m_usd + revenue_m_usd + funding_rounds + year_founded + market_share + employees,
+                      data = startupdata, family = "binomial")
+
+summary(logistic_model_success)
+
+```
